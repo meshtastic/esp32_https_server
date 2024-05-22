@@ -8,7 +8,8 @@
 #include <Arduino.h>
 
 // Required for SSL
-#include "openssl/ssl.h"
+#include "mbedtls/ssl.h"
+#include "mbedtls/ssl_ciphersuites.h"
 #undef read
 
 // Internal includes
@@ -38,14 +39,18 @@ private:
   SSLCert * _cert;
  
   //// Runtime data ============================================
-  SSL_CTX * _sslctx;
+  mbedtls_entropy_context _ssl_entropy;
+  mbedtls_ctr_drbg_context _ssl_ctr_drbg;
+  mbedtls_ssl_config _ssl_config;
+  mbedtls_x509_crt _ssl_cert;
+  mbedtls_pk_context _ssl_pk;
+
   // Status of the server: Are we running, or not?
 
   // Setup functions
   virtual uint8_t setupSocket();
   virtual void teardownSocket();
-  uint8_t setupSSLCTX();
-  uint8_t setupCert();
+  int setupCert();
 
   // Helper functions
   virtual int createConnection(int idx);

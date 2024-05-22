@@ -1,11 +1,13 @@
 #include "HTTPSConnection.hpp"
+#include "mbedtls/net_sockets.h"
 
 namespace httpsserver {
 
 
 HTTPSConnection::HTTPSConnection(ResourceResolver * resResolver):
   HTTPConnection(resResolver) {
-  _ssl = NULL;
+  _sslCreated = false;
+  _socket = 0;
 }
 
 HTTPSConnection::~HTTPSConnection() {
@@ -17,12 +19,36 @@ bool HTTPSConnection::isSecure() {
   return true;
 }
 
+bool HTTPSConnection::setup(mbedtls_ssl_config *sslConfig) {
+  mbedtls_ssl_init(&_ssl);
+  int res = mbedtls_ssl_setup(&_ssl, sslConfig);
+  if (res == 0) {
+    return true;
+  } else {
+    mbedtls_ssl_free(&_ssl);
+    return false;
+  }
+}
+
+bool HTTPSConnection::handshake() {
+  int res;
+  while (true) {
+    res = mbedtls_ssl_handshake(&_ssl);
+    if (res == 0) {
+      return true;
+    }
+    if (res != MBEDTLS_ERR_SSL_WANT_READ && res != MBEDTLS_ERR_SSL_WANT_WRITE) {
+      return false;
+    }
+  }
+}
+
 /**
  * Initializes the connection from a server socket.
  *
  * The call WILL BLOCK if accept(serverSocketID) blocks. So use select() to check for that in advance.
  */
-int HTTPSConnection::initialize(int serverSocketID, SSL_CTX * sslCtx, HTTPHeaders *defaultHeaders) {
+int HTTPSConnection::initialize(int serverSocketID, mbedtls_ssl_config *sslConfig, HTTPHeaders *defaultHeaders) {
   if (_connectionState == STATE_UNDEFINED) {
     // Let the base class connect the plain tcp socket
     int resSocket = HTTPConnection::initialize(serverSocketID, defaultHeaders);
@@ -30,25 +56,21 @@ int HTTPSConnection::initialize(int serverSocketID, SSL_CTX * sslCtx, HTTPHeader
     // Build up SSL Connection context if the socket has been created successfully
     if (resSocket >= 0) {
 
-      _ssl = SSL_new(sslCtx);
+      _socket = resSocket;
+      _sslCreated = setup(sslConfig);
 
-      if (_ssl) {
+      if (_sslCreated) {
         // Bind SSL to the socket
-        int success = SSL_set_fd(_ssl, resSocket);
-        if (success) {
+        mbedtls_ssl_set_bio(&_ssl, &_socket, mbedtls_net_send, mbedtls_net_recv, NULL);
 
-          // Perform the handshake
-          success = SSL_accept(_ssl);
-          if (success) {
-            return resSocket;
-          } else {
-            HTTPS_LOGE("SSL_accept failed. Aborting handshake. FID=%d", resSocket);
-          }
+        // Perform the handshake
+        if (handshake()) {
+          return resSocket;
         } else {
-          HTTPS_LOGE("SSL_set_fd failed. Aborting handshake. FID=%d", resSocket);
+          HTTPS_LOGE("SSL handshake failed. Aborting handshake. FID=%d", resSocket);
         }
       } else {
-        HTTPS_LOGE("SSL_new failed. Aborting handshake. FID=%d", resSocket);
+        HTTPS_LOGE("SSL setup failed. Aborting handshake. FID=%d", resSocket);
       }
 
     } else {
@@ -66,6 +88,18 @@ int HTTPSConnection::initialize(int serverSocketID, SSL_CTX * sslCtx, HTTPHeader
   return -1;
 }
 
+int HTTPSConnection::shutdown() {
+  int res;
+  while (true) {
+    res = mbedtls_ssl_close_notify(&_ssl);
+    if (res == 0) {
+      return 1;
+    }
+    if (res != MBEDTLS_ERR_SSL_WANT_WRITE) {
+      return 0;
+    }
+  }
+}
 
 void HTTPSConnection::closeConnection() {
 
@@ -83,41 +117,53 @@ void HTTPSConnection::closeConnection() {
   }
 
   // Try to tear down SSL while we are in the _shutdownTS timeout period or if an error occurred
-  if (_ssl) {
-    if(_connectionState == STATE_ERROR || SSL_shutdown(_ssl) == 0) {
-      // SSL_shutdown will return 1 as soon as the client answered with close notify
+  if (_sslCreated) {
+    if (_connectionState == STATE_ERROR || shutdown() == 0) {
+      // SSL shutdown will return 1 as soon as the client answered with close notify
       // This means we are safe to close the socket
-      SSL_free(_ssl);
-      _ssl = NULL;
+      mbedtls_ssl_free(&_ssl);
+      _sslCreated = false;
     } else if (_shutdownTS + HTTPS_SHUTDOWN_TIMEOUT < millis()) {
-      // The timeout has been hit, we force SSL shutdown now by freeing the context
-      SSL_free(_ssl);
-      _ssl = NULL;
-      HTTPS_LOGW("SSL_shutdown did not receive close notification from the client");
+      // The timeout has been hit, we force SSL shutdown now by resetting the session
+      mbedtls_ssl_free(&_ssl);
+      _sslCreated = false;
+      HTTPS_LOGW("SSL shutdown did not receive close notification from the client");
       _connectionState = STATE_ERROR;
     }
   }
 
   // If SSL has been brought down, close the socket
-  if (!_ssl) {
+  if (!_sslCreated) {
     HTTPConnection::closeConnection();
   }
 }
 
 size_t HTTPSConnection::writeBuffer(byte* buffer, size_t length) {
-  return SSL_write(_ssl, buffer, length);
+  while (true) {
+    int res = mbedtls_ssl_write(&_ssl, buffer, length);
+    if (res == MBEDTLS_ERR_SSL_WANT_READ || res == MBEDTLS_ERR_SSL_WANT_WRITE) {
+      continue;
+    }
+    return res;
+  }
 }
 
 size_t HTTPSConnection::readBytesToBuffer(byte* buffer, size_t length) {
-  return SSL_read(_ssl, buffer, length);
+  while (true) {
+    int res = mbedtls_ssl_read(&_ssl, buffer, length);
+    if (res == MBEDTLS_ERR_SSL_WANT_READ || res == MBEDTLS_ERR_SSL_WANT_WRITE) {
+      continue;
+    }
+    return res;
+  }
 }
 
 size_t HTTPSConnection::pendingByteCount() {
-  return SSL_pending(_ssl);
+  return mbedtls_ssl_get_bytes_avail(&_ssl);
 }
 
 bool HTTPSConnection::canReadData() {
-  return HTTPConnection::canReadData() || (SSL_pending(_ssl) > 0);
+  return HTTPConnection::canReadData() || (mbedtls_ssl_get_bytes_avail(&_ssl) > 0);
 }
 
 } /* namespace httpsserver */

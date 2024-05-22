@@ -5,7 +5,7 @@
 #include <IPAddress.h>
 
 // Required for SSL
-#include "openssl/ssl.h"
+#include "mbedtls/ssl.h"
 #undef read
 
 namespace httpsserver {
