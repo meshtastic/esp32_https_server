@@ -78,8 +78,12 @@ int HTTPSServer::setupCert() {
     return res;
   }
 
+#if ESP_IDF_VERSION_MAJOR > 4
   res = mbedtls_pk_parse_key(&_ssl_pk, _cert->getPKData(), _cert->getPKLength(), nullptr, 0,
                              mbedtls_ctr_drbg_random, &_ssl_ctr_drbg);
+#else
+  res = mbedtls_pk_parse_key(&_ssl_pk, _cert->getPKData(), _cert->getPKLength(), nullptr, 0);
+#endif
   if (res != 0) {
     return res;
   }
