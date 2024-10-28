@@ -6,7 +6,7 @@
 #include <string>
 
 // Required for SSL
-#include "openssl/ssl.h"
+#include "mbedtls/ssl.h"
 #undef read
 
 // Required for sockets
@@ -34,9 +34,12 @@ public:
   HTTPSConnection(ResourceResolver * resResolver);
   virtual ~HTTPSConnection();
 
-  virtual int initialize(int serverSocketID, SSL_CTX * sslCtx, HTTPHeaders *defaultHeaders);
+  virtual int initialize(int serverSocketID, mbedtls_ssl_config *sslConfig, HTTPHeaders *defaultHeaders);
   virtual void closeConnection();
   virtual bool isSecure();
+  bool setup(mbedtls_ssl_config *sslConfig);
+  bool handshake();
+  int shutdown();
 
 protected:
   friend class HTTPRequest;
@@ -49,7 +52,9 @@ protected:
 
 private:
   // SSL context for this connection
-  SSL * _ssl;
+  mbedtls_ssl_context _ssl;
+  bool _sslCreated;
+  int _socket;
 
 };
 

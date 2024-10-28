@@ -9,7 +9,7 @@
 #undef write
 #include <vector>
 
-#include <openssl/ssl.h>
+#include <mbedtls/ssl.h>
 
 #include "util.hpp"
 

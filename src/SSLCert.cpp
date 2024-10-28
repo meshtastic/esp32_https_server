@@ -181,7 +181,12 @@ static int cert_write(SSLCert &certCtx, std::string dn, std::string validityFrom
   }
 
   mbedtls_pk_init( &key );
+
+#if ESP_IDF_VERSION_MAJOR > 4
+  stepRes = mbedtls_pk_parse_key( &key, certCtx.getPKData(), certCtx.getPKLength(), NULL, 0, mbedtls_entropy_func, &ctr_drbg );
+#else
   stepRes = mbedtls_pk_parse_key( &key, certCtx.getPKData(), certCtx.getPKLength(), NULL, 0 );
+#endif
   if (stepRes != 0) {
     funcRes = HTTPS_SERVER_ERROR_CERTGEN_READKEY;
     goto error_after_key;
@@ -230,7 +235,17 @@ static int cert_write(SSLCert &certCtx, std::string dn, std::string validityFrom
     funcRes = HTTPS_SERVER_ERROR_CERTGEN_SERIAL;
     goto error_after_cert_serial;
   }
+#if ESP_IDF_VERSION_MAJOR > 4
+  unsigned char serial_bytes[10];
+  stepRes = mbedtls_mpi_write_binary( &serial, serial_bytes, 10 );
+  if (stepRes != 0) {
+    funcRes = HTTPS_SERVER_ERROR_CERTGEN_SERIAL;
+    goto error_after_cert_serial;
+  }
+  stepRes = mbedtls_x509write_crt_set_serial_raw( &crt, serial_bytes, 10 );
+#else
   stepRes = mbedtls_x509write_crt_set_serial( &crt, &serial );
+#endif
   if (stepRes != 0) {
     funcRes = HTTPS_SERVER_ERROR_CERTGEN_SERIAL;
     goto error_after_cert_serial;
