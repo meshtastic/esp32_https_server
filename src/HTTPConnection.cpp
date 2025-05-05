@@ -12,7 +12,6 @@ HTTPConnection::HTTPConnection(ResourceResolver * resResolver):
 
   _connectionState = STATE_UNDEFINED;
   _clientState = CSTATE_UNDEFINED;
-  _httpHeaders = NULL;
   _defaultHeaders = NULL;
   _isKeepAlive = false;
   _lastTransmissionTS = millis();
@@ -40,7 +39,7 @@ int HTTPConnection::initialize(int serverSocketID, HTTPHeaders *defaultHeaders) 
     if (_socket >= 0) {
       HTTPS_LOGI("New connection. Socket FID=%d", _socket);
       _connectionState = STATE_INITIAL;
-      _httpHeaders = new HTTPHeaders();
+      _httpHeaders.clearAll();
       refreshTimeout();
       return _socket;
     }
@@ -131,11 +130,8 @@ void HTTPConnection::closeConnection() {
     _connectionState = STATE_CLOSED;
   }
 
-  if (_httpHeaders != NULL) {
-    HTTPS_LOGD("Free headers");
-    delete _httpHeaders;
-    _httpHeaders = NULL;
-  }
+  HTTPS_LOGD("Free headers");
+  _httpHeaders.clearAll();
 
   if (_wsHandler != nullptr) {
     HTTPS_LOGD("Free WS Handler");
@@ -408,7 +404,7 @@ void HTTPConnection::loop() {
           } else {
             int idxColon = _parserLine.text.find(':');
             if ( (idxColon != std::string::npos) && (_parserLine.text[idxColon+1]==' ') ) {
-              _httpHeaders->set(new HTTPHeader(
+              _httpHeaders.set(new HTTPHeader(
                   _parserLine.text.substr(0, idxColon),
                   _parserLine.text.substr(idxColon+2)
               ));
@@ -441,7 +437,7 @@ void HTTPConnection::loop() {
           // Check for client's request to keep-alive if we have a handler function.
           if (resolvedResource.getMatchingNode()->_nodeType == HANDLER_CALLBACK) {
             // Did the client set connection:keep-alive?
-            HTTPHeader * connectionHeader = _httpHeaders->get("Connection");
+            HTTPHeader * connectionHeader = _httpHeaders.get("Connection");
             std::string connectionHeaderValue = "";
             if (connectionHeader != NULL) {
               connectionHeaderValue += connectionHeader->_value;
@@ -466,7 +462,7 @@ void HTTPConnection::loop() {
           // Create request context
           HTTPRequest req  = HTTPRequest(
             this,
-            _httpHeaders,
+            &_httpHeaders,
             resolvedResource.getMatchingNode(),
             _httpMethod,
             resolvedResource.getParams(),
@@ -549,7 +545,7 @@ void HTTPConnection::loop() {
                   // Refresh the timeout for the new request
                   refreshTimeout();
                   // Reset headers for the new connection
-                  _httpHeaders->clearAll();
+                  _httpHeaders.clearAll();
                   // Go back to initial state
                   _connectionState = STATE_INITIAL;
                 }
@@ -604,11 +600,11 @@ void HTTPConnection::loop() {
 
 bool HTTPConnection::checkWebsocket() {
   if(_httpMethod == "GET" &&
-     !_httpHeaders->getValue("Host").empty() &&
-      _httpHeaders->getValue("Upgrade") == "websocket" &&
-      _httpHeaders->getValue("Connection").find("Upgrade") != std::string::npos &&
-     !_httpHeaders->getValue("Sec-WebSocket-Key").empty() &&
-      _httpHeaders->getValue("Sec-WebSocket-Version") == "13") {
+     !_httpHeaders.getValue("Host").empty() &&
+      _httpHeaders.getValue("Upgrade") == "websocket" &&
+      _httpHeaders.getValue("Connection").find("Upgrade") != std::string::npos &&
+     !_httpHeaders.getValue("Sec-WebSocket-Key").empty() &&
+      _httpHeaders.getValue("Sec-WebSocket-Version") == "13") {
 
       HTTPS_LOGI("Upgrading to WS, FID=%d", _socket);
       return true;
