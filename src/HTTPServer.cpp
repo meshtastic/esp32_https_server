@@ -1,4 +1,5 @@
 #include "HTTPServer.hpp"
+#include <WiFi.h>
 
 namespace httpsserver {
 
@@ -168,15 +169,38 @@ int HTTPServer::createConnection(int idx) {
  * This method prepares the tcp server socket
  */
 uint8_t HTTPServer::setupSocket() {
-  // (AF_INET = IPv4, SOCK_STREAM = TCP)
-  _socket = socket(AF_INET, SOCK_STREAM, 0);
+  bool IPv6 = WiFi.localIPv6() == IPv6Address();
+
+  if (!IPv6)
+  {
+    // (AF_INET = IPv4, SOCK_STREAM = TCP)
+    _socket = socket(AF_INET, SOCK_STREAM, 0);
+  } else {
+    _socket = socket(AF_INET6, SOCK_STREAM, IPPROTO_IPV6);
+    int opt = 0;
+    //Allow to bind to both ipv4 and ipv6
+    setsockopt(_socket, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
+  }
 
   if (_socket>=0) {
-    _sock_addr.sin_family = AF_INET;
-    // Listen on all interfaces
-    _sock_addr.sin_addr.s_addr = _bindAddress;
-    // Set the server port
-    _sock_addr.sin_port = htons(_port);
+    if (!IPv6)
+    {
+      struct sockaddr_in *dest_addr = (struct sockaddr_in *)&_sock_addr;
+      dest_addr->sin_family = AF_INET;
+      // Listen on all interfaces
+      dest_addr->sin_addr.s_addr = _bindAddress;
+      // Set the server port
+      dest_addr->sin_port = htons(_port);
+    }
+    else
+    {
+      struct sockaddr_in6 *dest_addr_ip6 = (struct sockaddr_in6 *)&_sock_addr;
+      bzero(&dest_addr_ip6->sin6_addr.un, sizeof(dest_addr_ip6->sin6_addr.un));
+
+      dest_addr_ip6->sin6_family = AF_INET6;
+      // Set the server port
+      dest_addr_ip6->sin6_port = htons(_port);
+    }
 
     // Now bind the TCP socket we did create above to the socket address we specified
     // (The TCP-socket now listens on 0.0.0.0:port)
