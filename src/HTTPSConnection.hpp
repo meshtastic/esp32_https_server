@@ -39,7 +39,6 @@ public:
   virtual bool isSecure();
   bool setup(mbedtls_ssl_config *sslConfig);
   bool handshake();
-  int shutdown();
 
 protected:
   friend class HTTPRequest;

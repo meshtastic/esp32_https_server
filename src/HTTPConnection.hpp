@@ -149,7 +149,7 @@ private:
   // HTTP properties: Method, Request, Headers
   std::string _httpMethod;
   std::string _httpResource;
-  HTTPHeaders * _httpHeaders;
+  HTTPHeaders _httpHeaders;
 
   // Default headers that are applied to every response
   HTTPHeaders * _defaultHeaders;

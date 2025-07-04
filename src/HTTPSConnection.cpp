@@ -88,21 +88,8 @@ int HTTPSConnection::initialize(int serverSocketID, mbedtls_ssl_config *sslConfi
   return -1;
 }
 
-int HTTPSConnection::shutdown() {
-  int res;
-  while (true) {
-    res = mbedtls_ssl_close_notify(&_ssl);
-    if (res == 0) {
-      return 1;
-    }
-    if (res != MBEDTLS_ERR_SSL_WANT_WRITE) {
-      return 0;
-    }
-  }
-}
 
 void HTTPSConnection::closeConnection() {
-
   // FIXME: Copy from HTTPConnection, could be done better probably
   if (_connectionState != STATE_ERROR && _connectionState != STATE_CLOSED) {
 
@@ -118,8 +105,8 @@ void HTTPSConnection::closeConnection() {
 
   // Try to tear down SSL while we are in the _shutdownTS timeout period or if an error occurred
   if (_sslCreated) {
-    if (_connectionState == STATE_ERROR || shutdown() == 0) {
-      // SSL shutdown will return 1 as soon as the client answered with close notify
+    if (_connectionState == STATE_ERROR || mbedtls_ssl_close_notify(&_ssl) == 0) {
+      // SSL shutdown will return 0 as soon as the client answered with close notify
       // This means we are safe to close the socket
       mbedtls_ssl_free(&_ssl);
       _sslCreated = false;
