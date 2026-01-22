@@ -12,6 +12,7 @@ HTTPConnection::HTTPConnection(ResourceResolver * resResolver):
 
   _connectionState = STATE_UNDEFINED;
   _clientState = CSTATE_UNDEFINED;
+  _http1_1 = false;
   _defaultHeaders = NULL;
   _isKeepAlive = false;
   _lastTransmissionTS = millis();
@@ -380,6 +381,11 @@ void HTTPConnection::loop() {
         }
         _httpResource = _parserLine.text.substr(spaceAfterMethodIdx + 1, spaceAfterResourceIdx - _httpMethod.length() - 1);
 
+        // Check for HTTP/1.1
+        if (spaceAfterResourceIdx + 1 < _parserLine.text.size()) {
+          _http1_1 = _parserLine.text.substr(spaceAfterResourceIdx + 1).compare("HTTP/1.1") >= 0;
+        }
+
         _parserLine.parsingFinished = false;
         _parserLine.text = "";
         HTTPS_LOGI("Request: %s %s (FID=%d)", _httpMethod.c_str(), _httpResource.c_str(), _socket);
@@ -448,7 +454,7 @@ void HTTPConnection::loop() {
                 [](unsigned char c){ return ::tolower(c); }
               );
             }
-            if (std::string("keep-alive").compare(connectionHeaderValue)==0) {
+            if (_http1_1 || std::string("keep-alive").compare(connectionHeaderValue)==0) {
               HTTPS_LOGD("Keep-Alive activated. FID=%d", _socket);
               _isKeepAlive = true;
             } else {
