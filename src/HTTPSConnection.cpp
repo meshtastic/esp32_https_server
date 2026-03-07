@@ -25,6 +25,9 @@ bool HTTPSConnection::setup(mbedtls_ssl_config *sslConfig) {
   if (res == 0) {
     return true;
   } else {
+    char buf[100];
+    mbedtls_strerror(res, buf, sizeof(buf));
+    HTTPS_LOGE("mbedtls_ssl_setup res=%X (%s)", res, buf);
     mbedtls_ssl_free(&_ssl);
     return false;
   }
