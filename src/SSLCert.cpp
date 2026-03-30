@@ -184,8 +184,8 @@ static int cert_write(SSLCert &certCtx, std::string dn, std::string validityFrom
         funcRes = HTTPS_SERVER_ERROR_CERTGEN_RNG;
         goto error_after_entropy;
     }
-#if MBEDTLS_VERSION_NUMBER < 0x03040000
     mbedtls_pk_init( &key );
+#if MBEDTLS_VERSION_NUMBER < 0x03040000
     stepRes = mbedtls_pk_parse_key( &key, certCtx.getPKData(), certCtx.getPKLength(), NULL, 0 );
 #else
     stepRes = mbedtls_pk_parse_key( &key,
