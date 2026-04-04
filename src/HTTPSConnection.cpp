@@ -1,4 +1,5 @@
 #include "HTTPSConnection.hpp"
+#include "mbedtls/error.h"
 #include "mbedtls/net_sockets.h"
 
 namespace httpsserver {
