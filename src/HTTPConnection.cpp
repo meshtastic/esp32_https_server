@@ -67,6 +67,10 @@ IPAddress HTTPConnection::getClientIP() {
     struct sockaddr_in *sockAddrIn = (struct sockaddr_in *)(&_sockAddr);
     return IPAddress(sockAddrIn->sin_addr.s_addr);
   }
+  if (_addrLen > 0 && _sockAddr.sa_family == AF_INET6) {
+    struct sockaddr_in6 *sockAddrIn = (struct sockaddr_in6 *)(&_sockAddr);
+    return IPAddress(sockAddrIn->sin6_addr.s6_addr);
+  }
   return IPAddress(0, 0, 0, 0);
 }
 
