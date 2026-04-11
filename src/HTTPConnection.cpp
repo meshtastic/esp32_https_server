@@ -309,7 +309,7 @@ void HTTPConnection::readLine(int lengthLimit) {
       if (newChar == '\n') {
         HTTPS_LOGW("Line without \\r\\n (got only \\n). FID=%d", _socket);
       } else {
-        HTTPS_LOGW("Recieved invalid character (%d) in headedrs FID=%d", (int)newChar, _socket);
+        HTTPS_LOGW("Recieved an invalid character (%d) in headers FID=%d", (int)newChar, _socket);
       }
       raiseError(400, "Bad Request");
       return;
