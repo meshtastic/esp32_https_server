@@ -284,10 +284,11 @@ void HTTPConnection::raiseError(uint16_t code, std::string reason) {
 }
 
 void HTTPConnection::readLine(int lengthLimit) {
+  _parserLine.text.reserve(lengthLimit);
   while(_bufferProcessed < _bufferUnusedIdx) {
     char newChar = _receiveBuffer[_bufferProcessed];
 
-    if ( newChar == '\r') {
+    if ( newChar == '\r' ) {
       // Look ahead for \n (if not possible, wait for next round
       if (_bufferProcessed+1 < _bufferUnusedIdx) {
         if (_receiveBuffer[_bufferProcessed+1] == '\n') {
@@ -300,7 +301,19 @@ void HTTPConnection::readLine(int lengthLimit) {
           raiseError(400, "Bad Request");
           return;
         }
+      } else { // meh, but still ok in most cases
+        _bufferProcessed += 1;
+        _parserLine.parsingFinished = true;
+        return;
       }
+    } else if (newChar == '\n') {
+      // The next buffer after the '\r' which was at the end of the prev buffer.
+      // Don't care about "\r\n\n"
+      _bufferProcessed += 1;
+    } else if (newChar < 32) { // all '\r' and '\n' was above so any other char is invalid
+      HTTPS_LOGW("Recieved invalid character (%d) in headedrs FID=%d", (int)newChar, _socket);
+      raiseError(400, "Bad Request");
+      return;
     } else {
       _parserLine.text += newChar;
       _bufferProcessed += 1;
