@@ -28,7 +28,7 @@ public:
   virtual size_t pendingBufferSize() = 0;
 
   virtual size_t writeBuffer(byte* buffer, size_t length) = 0;
-  /** True if a small write will be taken without blocking */
+  /** True if the socket reports writable. A write larger than the free send buffer can still block. */
   virtual bool canWriteData() { return true; }
   /** Drop the connection without writing anything further to it */
   virtual void abortConnection() {}

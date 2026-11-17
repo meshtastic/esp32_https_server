@@ -277,7 +277,7 @@ bool WebsocketHandler::send(uint8_t* data, uint16_t length, uint8_t sendType) {
 }  // Websocket::send
 
 /**
- * Returns true if a frame can be handed to the socket without blocking
+ * Returns true if the socket reports writable, see the note on the declaration
  */
 bool WebsocketHandler::canSend() {
   return _con->canWriteData();
@@ -288,6 +288,8 @@ bool WebsocketHandler::canSend() {
  */
 void WebsocketHandler::abort() {
   _sentClose = true;
+  // The connection is deleted without passing through the lost-client path, which is what calls onClose()
+  onClose();
   _con->abortConnection();
 }
 
