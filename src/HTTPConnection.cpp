@@ -599,9 +599,16 @@ void HTTPConnection::loop() {
       break;
     case STATE_WEBSOCKET: // Do handling of the websocket
       refreshTimeout();  // don't timeout websocket connection
-      if(pendingBufferSize() > 0) {
+      // Not once the client has closed: reading again is a receive error, and that path
+      // closes the connection and frees the handler that the code below still uses
+      if(_clientState != CSTATE_CLOSED && pendingBufferSize() > 0) {
         HTTPS_LOGD("Calling WS handler, FID=%d", _socket);
         _wsHandler->loop();
+      }
+
+      // A receive error while polling has already closed the connection and freed the handler
+      if (_wsHandler == nullptr) {
+        break;
       }
 
       // If the client closed the connection unexpectedly
