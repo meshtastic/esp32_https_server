@@ -143,11 +143,33 @@ int WebsocketHandler::read() {
       break;
     }
 
-    case OPCODE_PING: {
-      break;
-    }
-
+    case OPCODE_PING:
     case OPCODE_PONG: {
+      // Control frames carry up to 125 bytes that have to leave the buffer with the frame
+      uint8_t payload[125];
+      if (payloadLen > sizeof(payload) || _con->readBuffer(payload, payloadLen) != payloadLen) {
+        HTTPS_LOGE("Websocket control frame read error");
+        return -1;
+      }
+      if (frame.opCode == OPCODE_PING) {
+        if (frame.mask == 1) {
+          for (uint32_t i = 0; i < payloadLen; i++) {
+            payload[i] ^= mask[i % 4];
+          }
+        }
+        WebsocketFrame pong;
+        pong.fin    = 1;
+        pong.rsv1   = 0;
+        pong.rsv2   = 0;
+        pong.rsv3   = 0;
+        pong.opCode = OPCODE_PONG;
+        pong.mask   = 0;
+        pong.len    = payloadLen;
+        _con->writeBuffer((uint8_t *)&pong, sizeof(pong));
+        if (payloadLen > 0) {
+          _con->writeBuffer(payload, payloadLen);
+        }
+      }
       break;
     }
 
@@ -180,7 +202,8 @@ void WebsocketHandler::close(uint16_t status, std::string message) {
   int rc = _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
 
   if (rc > 0) {
-    rc = _con->writeBuffer((byte *) &status, 2);
+    uint16_t netStatus = htons(status);
+    rc = _con->writeBuffer((byte *) &netStatus, 2);
   }
 
   if (rc > 0) {
