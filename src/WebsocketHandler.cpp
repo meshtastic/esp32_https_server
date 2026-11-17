@@ -143,11 +143,35 @@ int WebsocketHandler::read() {
       break;
     }
 
-    case OPCODE_PING: {
-      break;
-    }
-
+    case OPCODE_PING:
     case OPCODE_PONG: {
+      // Control frames carry up to 125 bytes that have to leave the buffer with the frame
+      uint8_t payload[125];
+      if (payloadLen > sizeof(payload) || _con->readBuffer(payload, payloadLen) != payloadLen) {
+        HTTPS_LOGE("Websocket control frame read error");
+        return -1;
+      }
+      if (frame.opCode == OPCODE_PING) {
+        if (frame.mask == 1) {
+          for (uint32_t i = 0; i < payloadLen; i++) {
+            payload[i] ^= mask[i % 4];
+          }
+        }
+        WebsocketFrame pong;
+        pong.fin    = 1;
+        pong.rsv1   = 0;
+        pong.rsv2   = 0;
+        pong.rsv3   = 0;
+        pong.opCode = OPCODE_PONG;
+        pong.mask   = 0;
+        pong.len    = payloadLen;
+        if (_con->canWriteData()) {
+          _con->writeBuffer((uint8_t *)&pong, sizeof(pong));
+          if (payloadLen > 0) {
+            _con->writeBuffer(payload, payloadLen);
+          }
+        }
+      }
       break;
     }
 
@@ -180,7 +204,8 @@ void WebsocketHandler::close(uint16_t status, std::string message) {
   int rc = _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
 
   if (rc > 0) {
-    rc = _con->writeBuffer((byte *) &status, 2);
+    uint16_t netStatus = htons(status);
+    rc = _con->writeBuffer((byte *) &netStatus, 2);
   }
 
   if (rc > 0) {
@@ -195,7 +220,7 @@ void WebsocketHandler::close(uint16_t status, std::string message) {
  * @param [in] data The data to send down the WebSocket.
  * @param [in] sendType The type of payload.  Either SEND_TYPE_TEXT or SEND_TYPE_BINARY.
  */
-void WebsocketHandler::send(std::string data, uint8_t sendType) {
+bool WebsocketHandler::send(std::string data, uint8_t sendType) {
   HTTPS_LOGD(">> Websocket.send(): length=%d", data.length());
   WebsocketFrame frame;
   frame.fin    = 1;
@@ -204,17 +229,19 @@ void WebsocketHandler::send(std::string data, uint8_t sendType) {
   frame.rsv3   = 0;
   frame.opCode = sendType==SEND_TYPE_TEXT?OPCODE_TEXT:OPCODE_BINARY;
   frame.mask   = 0;
+  bool ok;
   if (data.length() < 126) {
     frame.len = data.length();
-    _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
+    ok = _con->writeBuffer((uint8_t *)&frame, sizeof(frame)) == sizeof(frame);
   } else {
     frame.len = 126;
-    _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
+    ok = _con->writeBuffer((uint8_t *)&frame, sizeof(frame)) == sizeof(frame);
     uint16_t net_len = htons((uint16_t)data.length());
-    _con->writeBuffer((uint8_t *)&net_len, sizeof(uint16_t));  // Convert to network byte order from host byte order
+    ok = ok && _con->writeBuffer((uint8_t *)&net_len, sizeof(uint16_t)) == sizeof(uint16_t);  // Convert to network byte order from host byte order
   }
-  _con->writeBuffer((uint8_t*)data.data(), data.length());
+  ok = ok && _con->writeBuffer((uint8_t*)data.data(), data.length()) == data.length();
   HTTPS_LOGD("<< Websocket.send()");
+  return ok;
 } // Websocket::send
 
 
@@ -225,7 +252,7 @@ void WebsocketHandler::send(std::string data, uint8_t sendType) {
  * @param [in] data The data to send down the WebSocket.
  * @param [in] sendType The type of payload.  Either SEND_TYPE_TEXT or SEND_TYPE_BINARY.
  */
-void WebsocketHandler::send(uint8_t* data, uint16_t length, uint8_t sendType) {
+bool WebsocketHandler::send(uint8_t* data, uint16_t length, uint8_t sendType) {
   HTTPS_LOGD(">> Websocket.send(): length=%d", length);
   WebsocketFrame frame;
   frame.fin    = 1;
@@ -234,18 +261,37 @@ void WebsocketHandler::send(uint8_t* data, uint16_t length, uint8_t sendType) {
   frame.rsv3   = 0;
   frame.opCode = sendType==SEND_TYPE_TEXT?OPCODE_TEXT:OPCODE_BINARY;
   frame.mask   = 0;
+  bool ok;
   if (length < 126) {
     frame.len = length;
-    _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
+    ok = _con->writeBuffer((uint8_t *)&frame, sizeof(frame)) == sizeof(frame);
   } else {
     frame.len = 126;
-    _con->writeBuffer((uint8_t *)&frame, sizeof(frame));
+    ok = _con->writeBuffer((uint8_t *)&frame, sizeof(frame)) == sizeof(frame);
     uint16_t net_len = htons(length);
-    _con->writeBuffer((uint8_t *)&net_len, sizeof(uint16_t));  // Convert to network byte order from host byte order
+    ok = ok && _con->writeBuffer((uint8_t *)&net_len, sizeof(uint16_t)) == sizeof(uint16_t);  // Convert to network byte order from host byte order
   }
-  _con->writeBuffer(data, length);
+  ok = ok && _con->writeBuffer(data, length) == length;
   HTTPS_LOGD("<< Websocket.send()");
+  return ok;
 }  // Websocket::send
+
+/**
+ * Returns true if the socket reports writable, see the note on the declaration
+ */
+bool WebsocketHandler::canSend() {
+  return _con->canWriteData();
+}
+
+/**
+ * Drops the connection without sending a close frame
+ */
+void WebsocketHandler::abort() {
+  _sentClose = true;
+  // The connection is deleted without passing through the lost-client path, which is what calls onClose()
+  onClose();
+  _con->abortConnection();
+}
 
 /**
  * Returns true if the connection has been closed, either by client or server

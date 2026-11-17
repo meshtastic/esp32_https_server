@@ -202,8 +202,14 @@ int HTTPConnection::updateBuffer() {
           return 0;
         } else {
           // An error occured
-          _connectionState = STATE_ERROR;
           HTTPS_LOGE("An receive error occured, FID=%d", _socket);
+          if (_connectionState == STATE_WEBSOCKET) {
+            // The websocket branch of loop() still holds the handler. Report a lost client and let
+            // that branch close in order, rather than freeing the handler underneath it
+            _clientState = CSTATE_CLOSED;
+            return -1;
+          }
+          _connectionState = STATE_ERROR;
           closeConnection();
           return -1;
         }
@@ -261,6 +267,28 @@ size_t HTTPConnection::pendingByteCount() {
 
 size_t HTTPConnection::writeBuffer(byte* buffer, size_t length) {
   return send(_socket, buffer, length, 0);
+}
+
+bool HTTPConnection::canWriteData() {
+  if (_socket < 0) {
+    return false;
+  }
+  fd_set sockfds;
+  FD_ZERO( &sockfds );
+  FD_SET(_socket, &sockfds);
+
+  timeval timeout;
+  timeout.tv_sec  = 0;
+  timeout.tv_usec = 0;
+
+  return select(_socket + 1, NULL, &sockfds, NULL, &timeout) > 0;
+}
+
+void HTTPConnection::abortConnection() {
+  // STATE_ERROR skips the TLS close notify, which is a write and could block on a stalled peer.
+  // The client state is left alone: the websocket branch reads it as a lost client and would
+  // call onClose() a second time
+  _connectionState = STATE_ERROR;
 }
 
 size_t HTTPConnection::readBytesToBuffer(byte* buffer, size_t length) {
@@ -578,23 +606,38 @@ void HTTPConnection::loop() {
       break;
     case STATE_WEBSOCKET: // Do handling of the websocket
       refreshTimeout();  // don't timeout websocket connection
-      if(pendingBufferSize() > 0) {
-        HTTPS_LOGD("Calling WS handler, FID=%d", _socket);
-        _wsHandler->loop();
-      }
+      {
+        // Once the client has closed, the socket has nothing more, but frames it sent before
+        // closing are still in the buffer and are handed over, one per pass
+        int buffered = _bufferUnusedIdx - _bufferProcessed;
+        size_t pending = (_clientState == CSTATE_CLOSED) ? (size_t)buffered : pendingBufferSize();
+        if(pending > 0) {
+          HTTPS_LOGD("Calling WS handler, FID=%d", _socket);
+          _wsHandler->loop();
+        }
 
-      // If the client closed the connection unexpectedly
-      if (_clientState == CSTATE_CLOSED) {
-        HTTPS_LOGI("WS lost client, calling onClose, FID=%d", _socket);
-        _wsHandler->onClose();
-      }
+        // The client is lost once it has closed and the buffer is empty or no longer shrinking
+        int left = _bufferUnusedIdx - _bufferProcessed;
+        bool lost = _clientState == CSTATE_CLOSED && (left == 0 || left == buffered);
 
-      // If the handler has terminated the connection, clean up and close the socket too
-      if (_wsHandler->closed() || _clientState == CSTATE_CLOSED) {
-        HTTPS_LOGI("WS closed, freeing Handler, FID=%d", _socket);
-        delete _wsHandler;
-        _wsHandler = nullptr;
-        _connectionState = STATE_CLOSING;
+        // If the client closed the connection unexpectedly
+        if (lost && !_wsHandler->closed()) {
+          HTTPS_LOGI("WS lost client, calling onClose, FID=%d", _socket);
+          _wsHandler->onClose();
+        }
+
+        // If the handler has terminated the connection, clean up and close the socket too
+        if (_wsHandler->closed() || lost) {
+          HTTPS_LOGI("WS closed, freeing Handler, FID=%d", _socket);
+          delete _wsHandler;
+          _wsHandler = nullptr;
+          if (lost) {
+            // Nobody is left to read a TLS close notify, and that write could block
+            _connectionState = STATE_ERROR;
+          } else if (_connectionState != STATE_ERROR) {
+            _connectionState = STATE_CLOSING;
+          }
+        }
       }
       break;
     default:;
