@@ -202,8 +202,14 @@ int HTTPConnection::updateBuffer() {
           return 0;
         } else {
           // An error occured
-          _connectionState = STATE_ERROR;
           HTTPS_LOGE("An receive error occured, FID=%d", _socket);
+          if (_connectionState == STATE_WEBSOCKET) {
+            // The websocket branch of loop() still holds the handler. Report a lost client and let
+            // that branch close in order, rather than freeing the handler underneath it
+            _clientState = CSTATE_CLOSED;
+            return -1;
+          }
+          _connectionState = STATE_ERROR;
           closeConnection();
           return -1;
         }
@@ -279,8 +285,9 @@ bool HTTPConnection::canWriteData() {
 }
 
 void HTTPConnection::abortConnection() {
-  // STATE_ERROR skips the TLS close notify, which is a write and could block on a stalled peer
-  _clientState = CSTATE_CLOSED;
+  // STATE_ERROR skips the TLS close notify, which is a write and could block on a stalled peer.
+  // The client state is left alone: the websocket branch reads it as a lost client and would
+  // call onClose() a second time
   _connectionState = STATE_ERROR;
 }
 
@@ -599,16 +606,10 @@ void HTTPConnection::loop() {
       break;
     case STATE_WEBSOCKET: // Do handling of the websocket
       refreshTimeout();  // don't timeout websocket connection
-      // Not once the client has closed: reading again is a receive error, and that path
-      // closes the connection and frees the handler that the code below still uses
+      // Not once the client has closed: there is nothing left to read
       if(_clientState != CSTATE_CLOSED && pendingBufferSize() > 0) {
         HTTPS_LOGD("Calling WS handler, FID=%d", _socket);
         _wsHandler->loop();
-      }
-
-      // A receive error while polling has already closed the connection and freed the handler
-      if (_wsHandler == nullptr) {
-        break;
       }
 
       // If the client closed the connection unexpectedly
