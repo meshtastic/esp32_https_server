@@ -263,6 +263,27 @@ size_t HTTPConnection::writeBuffer(byte* buffer, size_t length) {
   return send(_socket, buffer, length, 0);
 }
 
+bool HTTPConnection::canWriteData() {
+  if (_socket < 0) {
+    return false;
+  }
+  fd_set sockfds;
+  FD_ZERO( &sockfds );
+  FD_SET(_socket, &sockfds);
+
+  timeval timeout;
+  timeout.tv_sec  = 0;
+  timeout.tv_usec = 0;
+
+  return select(_socket + 1, NULL, &sockfds, NULL, &timeout) > 0;
+}
+
+void HTTPConnection::abortConnection() {
+  // STATE_ERROR skips the TLS close notify, which is a write and could block on a stalled peer
+  _clientState = CSTATE_CLOSED;
+  _connectionState = STATE_ERROR;
+}
+
 size_t HTTPConnection::readBytesToBuffer(byte* buffer, size_t length) {
   return recv(_socket, buffer, length, MSG_WAITALL | MSG_DONTWAIT);
 }
@@ -594,7 +615,9 @@ void HTTPConnection::loop() {
         HTTPS_LOGI("WS closed, freeing Handler, FID=%d", _socket);
         delete _wsHandler;
         _wsHandler = nullptr;
-        _connectionState = STATE_CLOSING;
+        if (_connectionState != STATE_ERROR) {
+          _connectionState = STATE_CLOSING;
+        }
       }
       break;
     default:;
