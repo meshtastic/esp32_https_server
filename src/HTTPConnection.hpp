@@ -119,6 +119,8 @@ private:
   size_t pendingBufferSize();
 
   void signalClientClose();
+  bool canWriteData();
+  void abortConnection();
   void signalRequestError();
   size_t readBuffer(byte* buffer, size_t length);
   size_t getCacheSize();

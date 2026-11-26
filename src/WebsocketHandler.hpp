@@ -67,8 +67,15 @@ public:
   virtual void onError(std::string error);
 
   void close(uint16_t status = CLOSE_NORMAL_CLOSURE, std::string message = "");
-  void send(std::string data, uint8_t sendType = SEND_TYPE_BINARY);
-  void send(uint8_t *data, uint16_t length, uint8_t sendType = SEND_TYPE_BINARY);
+  bool send(std::string data, uint8_t sendType = SEND_TYPE_BINARY);
+  bool send(uint8_t *data, uint16_t length, uint8_t sendType = SEND_TYPE_BINARY);
+  /**
+   * True if the socket reports writable. That covers a frame that fits the free send buffer;
+   * a larger one can still block. Check it before each frame.
+   */
+  bool canSend();
+  /** Drop the connection without sending a close frame, for a peer that has stopped reading */
+  void abort();
   bool closed();
 
   void loop();
