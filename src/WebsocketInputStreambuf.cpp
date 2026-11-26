@@ -6,16 +6,19 @@ namespace httpsserver {
  * @param [in] socket The socket we will be reading from.
  * @param [in] dataLength The size of a record.
  * @param [in] bufferSize The size of the buffer we wish to allocate to hold data.
+ * @param [in] opCode The opcode of the frame that carries the record.
  */
 WebsocketInputStreambuf::WebsocketInputStreambuf(
   ConnectionContext   *con,
   size_t dataLength,
   uint8_t *pMask,
-  size_t bufferSize
+  size_t bufferSize,
+  uint8_t opCode
 ) {
   _con     = con;    // The socket we will be reading from
   _dataLength = dataLength; // The size of the record we wish to read.
   _pMask      = pMask;
+  _opCode     = opCode;
   _bufferSize = bufferSize; // The size of the buffer used to hold data
   _sizeRead   = 0;          // The size of data read from the socket
   _buffer = new char[bufferSize]; // Create the buffer used to hold the data read from the socket.
@@ -60,6 +63,10 @@ void WebsocketInputStreambuf::discard() {
 size_t WebsocketInputStreambuf::getRecordSize() {
   return _dataLength;
 } // WebsocketInputStreambuf::getRecordSize
+
+uint8_t WebsocketInputStreambuf::getOpCode() const {
+  return _opCode;
+}
 
 /**
  * @brief Handle the request to read data from the stream but we need more data from the source.
