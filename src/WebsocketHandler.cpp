@@ -123,7 +123,7 @@ int WebsocketHandler::read() {
     case OPCODE_TEXT:
     case OPCODE_BINARY: {
       HTTPS_LOGD("Creating Streambuf");
-      WebsocketInputStreambuf streambuf(_con, payloadLen, frame.mask==1?mask:nullptr);
+      WebsocketInputStreambuf streambuf(_con, payloadLen, frame.mask==1?mask:nullptr, 2048, frame.opCode);
       HTTPS_LOGD("Calling onMessage");
       onMessage(&streambuf);
       HTTPS_LOGD("Discarding Streambuf");
